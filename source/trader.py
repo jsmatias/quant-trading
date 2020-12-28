@@ -48,7 +48,7 @@ class Trader():
     ], dtype='float64', name='summary')
 
     def __init__(self, risk_size, target_size, capital, fees):
-        self._startingPoint = {
+        self._initialSettings = {
             'risk_size': risk_size,
             'target_size': target_size,
             'capital': capital,
@@ -56,14 +56,27 @@ class Trader():
         }
         self.reset()
 
+    
+    @staticmethod
+    def _risk(entry, stop, vol):
+        return(
+            vol * (entry - stop)
+        )
+
+    @staticmethod
+    def _volume(entry, stop, risk):
+        return(
+            round(risk / (entry - stop))
+        )
+
     def reset(self):
         """
         """
-        self._capital = self._startingPoint['capital']
-        self._initial_cap = self._startingPoint['capital']
-        self._R = self._startingPoint['risk_size']
-        self._trg = self._startingPoint['target_size']
-        self._fees = self._startingPoint['fees']
+        self._capital = self._initialSettings['capital']
+        self._initial_cap = self._initialSettings['capital']
+        self._R = self._initialSettings['risk_size']
+        self._trg = self._initialSettings['target_size']
+        self._fees = self._initialSettings['fees']
         self._RRatio = self._R / self._capital
         self._history = pd.DataFrame(columns=[
             'entry_date',
@@ -79,18 +92,6 @@ class Trader():
             'exit_date',
             'time_in'
         ])
-
-    @staticmethod
-    def _risk(entry, stop, vol):
-        return(
-            vol * (entry - stop)
-        )
-
-    @staticmethod
-    def _volume(entry, stop, risk):
-        return(
-            round(risk / (entry - stop))
-        )
 
     def updaterisk(self, every=50):
         """Updates the risk based on the capital and initial risk ratio.
