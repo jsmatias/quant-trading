@@ -199,7 +199,7 @@ class ABC:
                 print(f'{candle.name}: {self._ticker} {entry=}, {stop=}')
                 tradeID = self._trader.buy(ticker=self._ticker, entry=entry,
                                     stop=stop, entry_date=candle.name)
-                target = (self._B['High'] - self._A['Low']) + entry if self.useTarget else 0
+                target = (self._pattern['High'].max() - self._pattern['Low'].min()) + entry if self.useTarget else 0
                 self._trader.settarget(tradeID, target=target)
 
         self.updatepattern(candle)

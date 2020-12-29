@@ -16,6 +16,7 @@ class Trader():
     _capital = 0
     _fees = 0
     _clockDay = datetime.today()
+    _highNLows = False
     _benchmark = pd.DataFrame(columns=[
         'entry_date',
         'pnl'
@@ -72,6 +73,7 @@ class Trader():
     def reset(self):
         """
         """
+        self._highNLows = False
         self._capital = self._initialSettings['capital']
         self._initial_cap = self._initialSettings['capital']
         self._R = self._initialSettings['risk_size']
@@ -431,12 +433,23 @@ class Trader():
         
         pl.show()
 
-    def plottrades(self, ticker):
+    def plottrades(self, ticker, highAndLows=False):
         """Plot price history and trades on period for a stock ticker.
 
         Args:
             ticker (str): Stock symbol.
         """
+
+        if highAndLows and not self._highNLows:
+            # calculate high and lows
+            for symbol in self.portfolio():
+                topMask = (self.portfolio(symbol)['High'] > self.portfolio(symbol)['High'].shift(1)) & \
+                    (self.portfolio(symbol)['High'] > self.portfolio(symbol)['High'].shift(-1))
+                bottomMask = (self.portfolio(symbol)['Low'] < self.portfolio(symbol)['Low'].shift(1)) & \
+                    (self.portfolio(symbol)['Low'] < self.portfolio(symbol)['Low'].shift(-1))
+                self.portfolio(symbol).loc[topMask, 'Top'] = self.portfolio(symbol).loc[topMask, 'High']
+                self.portfolio(symbol).loc[bottomMask, 'Bottom'] = self.portfolio(symbol).loc[bottomMask, 'Low']
+            self._highNLows = True
 
         INCREASING_COLOR = '#17BECF'
         DECREASING_COLOR = '#7F7F7F'
@@ -448,6 +461,29 @@ class Trader():
                 go.Scatter(x=self.portfolio(ticker).index, y=self.portfolio(ticker)[col],
                     name=f'SMA {col[3:]}', line=dict(color='#E377C2'), yaxis='y2'),
             )
+
+        if highAndLows:
+            traces.append(
+                go.Scatter(
+                    x=self.portfolio(ticker).index, 
+                    y=self.portfolio(ticker)['Top'],
+                    name='Tops',
+                    yaxis='y2',
+                    mode='markers',
+                    marker=dict(symbol='y-up', line=dict(width=2, color='orange'))  
+                ),
+            )
+            traces.append(
+                go.Scatter(
+                    x=self.portfolio(ticker).index, 
+                    y=self.portfolio(ticker)['Bottom'],
+                    name='Bottoms',
+                    yaxis='y2',
+                    mode='markers',
+                    marker=dict(symbol='y-down', line=dict(width=2, color='orange'))  
+                ),
+            )
+
 
         fig = go.Figure(
             data=[
@@ -465,8 +501,7 @@ class Trader():
                     name='Entry',
                     yaxis='y2',
                     mode='markers',
-                    marker=dict(color='orange', symbol='triangle-up')
-                    
+                    marker=dict(color='orange', symbol='triangle-up')    
                 ),
                 go.Scatter(
                     x=self.history(ticker)['entry_date'], 
@@ -495,12 +530,12 @@ class Trader():
                 'rangeslider_visible':False,
                 "rangebreaks": [{
                     "bounds": ["sat", "mon"],
-                    "values":["2015-12-25", "2016-01-01"]
+                    "values":["2015-12-24", "2015-12-25", "2016-01-01"]
                 }]
             },
             yaxis1=dict(domain=[0, 0.2], showticklabels=False),
             yaxis2=dict(domain=[0.2, 0.8], type='log'),
-            legend=dict(orientation='h', y=0.9, x=0.3, yanchor='bottom'),
+            legend=dict(orientation='h', y=0.9, x=-0.7, yanchor='bottom'),
             margin=dict(t=40, b=40, r=40, l=40),
             plot_bgcolor='rgb(250, 250, 250)'
         )
