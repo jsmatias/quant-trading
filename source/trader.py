@@ -175,11 +175,17 @@ class Trader():
         else:
             return(list(self._portfolio.keys()))
 
-    def settarget(self, pos_idx, target=0):
-
+    def settarget(self, pos_idx, target=None):
+        """Set target price.
+        
+        Args:
+            pos_idx (int): index of the open trade on the trades history.
+            target (float): if None target will be calculated based on the risk size.
+        """
         if pos_idx >= 0:
             entry, stop = self._history.loc[pos_idx, ['entry', 'stop']]
-            target = target if target else (self._trg / self._R) * (entry - stop) + entry
+            if target is None: print('Using trader target.')
+            target = target or ((self._trg / self._R) * (entry - stop) + entry)
             self._history.loc[pos_idx, 'target'] = target
         else: print("Couldn't find the trade to set target to...")
 

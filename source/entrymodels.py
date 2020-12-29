@@ -9,9 +9,10 @@ class ABC:
     """
     _pattern = pd.DataFrame()
     debug = False
-    useTarget = False
-    selectCriteria = None # 4SMA, SMA21...
+    RRLowerThan1 = False
     stop = {'position': 'C', 'factor': 1}
+    target = {'projection': 'AB', 'factor': 1} # 'AB' or None 
+    selectCriteria = None # 4SMA, SMA21...
 
     _ticker = 'MGLU3'
     _trader = {}  # trader object
@@ -196,10 +197,15 @@ class ABC:
 
         if entry and stop:
             if self.criteria(self._trader._portfolio[self._ticker].iloc[idx - 1]):
-                print(f'{candle.name}: {self._ticker} {entry=}, {stop=}')
-                tradeID = self._trader.buy(ticker=self._ticker, entry=entry,
-                                    stop=stop, entry_date=candle.name)
-                target = (self._pattern['High'].max() - self._pattern['Low'].min()) + entry if self.useTarget else 0
-                self._trader.settarget(tradeID, target=target)
+                # filter RR lower than 1
+                if self.target['projection'] == 'AB':
+                    target = (self._pattern['High'].max() - self._pattern['Low'].min()) * self.target['factor'] + entry
+                else:
+                    target = None
+                if (target is None) or ((target - entry) > (entry - stop)):
+                    print(f'{candle.name}: {self._ticker} {entry=}, {stop=}')
+                    tradeID = self._trader.buy(ticker=self._ticker, entry=entry,
+                                        stop=stop, entry_date=candle.name)
+                    self._trader.settarget(tradeID, target=target)
 
         self.updatepattern(candle)
