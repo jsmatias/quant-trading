@@ -535,7 +535,8 @@ class Trader():
                     name='Tops',
                     yaxis='y2',
                     mode='markers',
-                    marker=dict(symbol='y-up', line=dict(width=2, color='orange'))  
+                    marker=dict(symbol='arrow-bar-down', color='#46039f', line=dict(width=1, color='#0d0887'))
+                    # marker=dict(symbol='y-up', line=dict(width=2, color='orange'))  
                 ),
             )
             traces.append(
@@ -545,7 +546,7 @@ class Trader():
                     name='Bottoms',
                     yaxis='y2',
                     mode='markers',
-                    marker=dict(symbol='y-down', line=dict(width=2, color='orange'))  
+                    marker=dict(symbol='arrow-bar-up', color='#46039f', line=dict(width=1, color='#0d0887'))
                 ),
             )
 
@@ -563,7 +564,8 @@ class Trader():
                 go.Scatter(
                     x=self.history(ticker)['entry_date'], 
                     y=self.history(ticker)['entry'],
-                    name='Entry',
+                    name=f'Entry',
+                    text=self.history(ticker)['pnl'].apply(lambda x: f"PNL: {x:.2f}"),
                     yaxis='y2',
                     mode='markers',
                     marker=dict(color='orange', symbol='triangle-up')    
@@ -571,7 +573,8 @@ class Trader():
                 go.Scatter(
                     x=self.history(ticker)['entry_date'], 
                     y=self.history(ticker)['stop'],
-                    name='Stop loss',
+                    name=f'Stop loss',
+                    text=self.history(ticker)['pnl'].apply(lambda x: f"PNL: {x:.2f}"),
                     yaxis='y2',
                     mode='markers',
                     marker=dict(color='red', symbol='triangle-down')
@@ -579,7 +582,8 @@ class Trader():
                 go.Scatter(
                     x=self.history(ticker)['entry_date'], 
                     y=self.history(ticker)['target'],
-                    name='Target',
+                    name=f'Target',
+                    text=self.history(ticker)['pnl'].apply(lambda x: f"PNL: {x:.2f}"),
                     yaxis='y2',
                     mode='markers',
                     marker=dict(color='green', symbol='triangle-down')
@@ -590,7 +594,6 @@ class Trader():
 
         fig.update_layout(
             title=ticker,
-            yaxis2_title='R$',
             xaxis={
                 'rangeslider_visible':False,
                 "rangebreaks": [{
@@ -598,9 +601,9 @@ class Trader():
                     "values":["2015-12-24", "2015-12-25", "2016-01-01"]
                 }]
             },
-            yaxis1=dict(domain=[0, 0.2], showticklabels=False),
-            yaxis2=dict(domain=[0.2, 0.8], type='log'),
-            legend=dict(orientation='h', y=0.9, x=-0.7, yanchor='bottom'),
+            yaxis1=dict(side='right', domain=[0, 0.15], showticklabels=False),
+            yaxis2=dict(side='right', title='R$', domain=[0.15, 0.8], type='log'),
+            legend=dict(orientation='h', y=0.9, x=0.3, yanchor='bottom'),
             margin=dict(t=40, b=40, r=40, l=40),
             plot_bgcolor='rgb(250, 250, 250)'
         )

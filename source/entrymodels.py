@@ -1,6 +1,7 @@
 import pandas as pd
 
 # Improvement: add method to calculate stop and target
+# Improvement: queue orders to be triggered or not. 
 class ABC:
     """ABC on close.
     Rules:
@@ -60,22 +61,26 @@ class ABC:
         
         prevCandle = self._pattern.iloc[-1]
         if prevCandle['pivot'] == 'A':
-            if (candle['Close'] <= prevCandle['Close']):
+            if (candle['Close'] <= prevCandle['Close']) or (candle['Low'] < prevCandle['Low']):
                 self.reset(candle)
                 msg = 'a down -> a'
             else:
                 self.add('B', candle)
                 msg = 'a up -> b'
         elif prevCandle['pivot'] == 'B':
-            if (candle['Close'] >= prevCandle['Close']) or ((candle['Close'] < prevCandle['Close']) and (candle['High'] > prevCandle['High'])):
-                self.add('B', candle)
-                msg = 'b up -> b'
-            elif (candle['Low'] >= min(self._pattern['Low'])):
-                self.add('C', candle)
-                msg = 'b down -> c'
-            else:
+            if (candle['Low'] < min(self._pattern['Low'])):
                 self.reset(candle)
                 msg = 'b min -> a'
+            elif (candle['Close'] >= prevCandle['Close']) or ((candle['Close'] < prevCandle['Close']) and (candle['High'] > prevCandle['High'])):
+                self.add('B', candle)
+                msg = 'b up -> b'
+            # elif (candle['Low'] >= min(self._pattern['Low'])):
+            else:
+                self.add('C', candle)
+                msg = 'b down -> c'
+            # else:
+            #     self.reset(candle)
+            #     msg = 'b min -> a'
         elif prevCandle['pivot'] == 'C':
             if (candle['Low'] < min(self._pattern['Low'])):
                 self.reset(prevCandle)
@@ -94,18 +99,26 @@ class ABC:
             else:
                 print('Condition not taken into account')
         elif prevCandle['pivot'] == 'S':
-            if (candle['Close'] >= prevCandle['Close']):
+            if candle['Low'] < min(self._pattern['Low']):
+                self.reset(candle)
+                msg = 's down -> a'
+            # elif (candle['Close'] >= prevCandle['Close']) and (candle['High'] > prevCandle['High']):
+            # it will erase the B entry in case it doesn't trigger on this candle
+            elif (candle['High'] > prevCandle['High']):
                 # S is B
                 self.reset(self._pattern.iloc[-2])
                 self.add('B', prevCandle)
                 self.add('B', candle)
                 msg = 's up -> a,b,b'
-            elif (candle['Low'] >= min(self._pattern['Low'])) and (candle['High'] <= prevCandle['High']):
+            elif (candle['Close'] >= prevCandle['Close']):
+                self.add('S', candle)
+                msg = 's up -> s'
+            else:
                 self.add('C', candle)
                 msg = 's down -> c'
-            else:
-                self.reset(candle)
-                msg = 's down -> a'
+            # else:
+            #     self.reset(candle)
+            #     msg = 's down -> a'
         
         if self.debug:
             print(f'{candle.name}: {self._ticker} {msg}')
@@ -218,20 +231,22 @@ class ABC:
         self.updatepattern(candle)
 
         minC = self._pattern.loc[self._pattern['pivot']=='C', 'Low'].min()
-        if self._pattern.iloc[-1]['pivot'] == 'S':
-            entry = round(self._pattern.iloc[-1]['High'] - 0.01, 2)
-            stop = round(min(minC, self._pattern.iloc[-1]['Low']) - 0.01, 2)
-            triggerOn = 'S'
-            # print(self._ticker, entry, stop)
-        elif self._pattern.iloc[-1]['pivot'] == 'C':
-            entry = round(self._pattern['High'].max() - 0.01, 2)
-            stop = round(minC - 0.01, 2)
-            triggerOn = 'C'
-            # print(self._ticker, entry, stop)
+        
+        if self.criteria(candle):
+            if self._pattern.iloc[-1]['pivot'] == 'S':
+                entry = round(self._pattern.iloc[-1]['High'] - 0.01, 2)
+                stop = round(min(minC, self._pattern.iloc[-1]['Low']) - 0.01, 2)
+                triggerOn = 'S'
+                # print(self._ticker, entry, stop)
+            elif self._pattern.iloc[-1]['pivot'] == 'C':
+                entry = round(self._pattern['High'].max() - 0.01, 2)
+                stop = round(minC - 0.01, 2)
+                triggerOn = 'C'
+                # print(self._ticker, entry, stop)
+            else:
+                entry, stop, triggerOn = None, None, None
         else:
             entry, stop, triggerOn = None, None, None
         stop = None if stop is None else entry - self.stop['factor'] * (entry - stop)
         # print(self._ticker, entry, stop)
         return(entry, stop, triggerOn)
-        
-        

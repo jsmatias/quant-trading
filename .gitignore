@@ -4,7 +4,9 @@ __pycache__/
 *$py.class
 
 # Jupyter Notebook
-.ipynb_checkpoints
+**/.ipynb
+**/.ipynb_checkpoints
+!notebooks/template.ipynb
 
 # IPython
 profile_default/
