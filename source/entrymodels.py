@@ -1,5 +1,6 @@
 import pandas as pd
 
+# Improvement: add method to calculate stop and target
 class ABC:
     """ABC on close.
     Rules:
@@ -202,10 +203,35 @@ class ABC:
                     target = (self._pattern['High'].max() - self._pattern['Low'].min()) * self.target['factor'] + entry
                 else:
                     target = None
-                if (target is None) or ((target - entry) > (entry - stop)):
+                if (target is None) or (self.RRLowerThan1) or ((target - entry) > (entry - stop)):
                     print(f'{candle.name}: {self._ticker} {entry=}, {stop=}')
                     tradeID = self._trader.buy(ticker=self._ticker, entry=entry,
                                         stop=stop, entry_date=candle.name)
                     self._trader.settarget(tradeID, target=target)
 
         self.updatepattern(candle)
+    
+    def searchcallback(self, idx):
+        """
+        """
+        candle = self._trader._portfolio[self._ticker].iloc[idx]
+        self.updatepattern(candle)
+
+        minC = self._pattern.loc[self._pattern['pivot']=='C', 'Low'].min()
+        if self._pattern.iloc[-1]['pivot'] == 'S':
+            entry = round(self._pattern.iloc[-1]['High'] - 0.01, 2)
+            stop = round(min(minC, self._pattern.iloc[-1]['Low']) - 0.01, 2)
+            triggerOn = 'S'
+            # print(self._ticker, entry, stop)
+        elif self._pattern.iloc[-1]['pivot'] == 'C':
+            entry = round(self._pattern['High'].max() - 0.01, 2)
+            stop = round(minC - 0.01, 2)
+            triggerOn = 'C'
+            # print(self._ticker, entry, stop)
+        else:
+            entry, stop, triggerOn = None, None, None
+        stop = None if stop is None else entry - self.stop['factor'] * (entry - stop)
+        # print(self._ticker, entry, stop)
+        return(entry, stop, triggerOn)
+        
+        

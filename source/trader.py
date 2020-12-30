@@ -4,6 +4,7 @@ import matplotlib.pyplot as pl
 import pandas_datareader as pdr
 from datetime import datetime, timedelta
 import plotly.graph_objects as go
+from tqdm import tqdm
 
 
 class Trader():
@@ -47,6 +48,12 @@ class Trader():
         'liquid_cap',
         'total_cap',
     ], dtype='float64', name='summary')
+    _opportunities = pd.DataFrame(columns=[
+        'ticker',
+        'entry',
+        'stop',
+        'trigger_on'
+    ])
 
     def __init__(self, risk_size, target_size, capital, fees):
         self._initialSettings = {
@@ -57,7 +64,6 @@ class Trader():
         }
         self.reset()
 
-    
     @staticmethod
     def _risk(entry, stop, vol):
         return(
@@ -153,15 +159,20 @@ class Trader():
         firstDay = datetime.today()
         lastDay = datetime(1900, 1, 1)
         self._portfolio = {}
-        for ticker in portfolio:
-            self._portfolio[ticker] = pdr.get_data_yahoo(
-                ticker,
-                start=start,
-                end=end
-            )
-            firstDay = self._portfolio[ticker].index[0] if self._portfolio[ticker].index[0] < firstDay else firstDay
-            lastDay = self._portfolio[ticker].index[-1] if self._portfolio[ticker].index[-1] > lastDay else lastDay
-
+        pbar = tqdm(portfolio, total=len(portfolio), unit='ticker')
+        for ticker in pbar:
+            pbar.set_description(desc=ticker)
+            try:
+                self._portfolio[ticker] = pdr.get_data_yahoo(
+                    ticker,
+                    start=start,
+                    end=end
+                )
+                firstDay = self._portfolio[ticker].index[0] if self._portfolio[ticker].index[0] < firstDay else firstDay
+                lastDay = self._portfolio[ticker].index[-1] if self._portfolio[ticker].index[-1] > lastDay else lastDay
+            except Exception as error:
+                print(f'Loading error: {error}')
+                pass
         self._period = [firstDay, lastDay]
 
     def testperiod(self):
@@ -174,6 +185,11 @@ class Trader():
             return(self._portfolio[ticker])
         else:
             return(list(self._portfolio.keys()))
+
+    def opportunities(self):
+        """
+        """
+        return(self._opportunities)
 
     def settarget(self, pos_idx, target=None):
         """Set target price.
@@ -247,6 +263,49 @@ class Trader():
 
         # print(f'New vol: {vol}')
      
+    def search(self, entrymodel):
+        """Search a pattern on the lattest day of the available data.
+
+        Args:
+            pattern (pattern.class): Ex. ABC
+        
+        Return:
+            None | pandas.DataFrame: Opportunities found.
+        """
+        if self._portfolio:
+            entryObjPerTicker = {ticker: entrymodel(ticker, self) for ticker in self._portfolio}
+            pbar = tqdm(self._portfolio, total=len(self._portfolio), unit='ticker')
+            for ticker in pbar:
+                pbar.set_description(desc=ticker)
+                self._clockDay = self.testperiod()[0] + timedelta(1)
+                while self._clockDay <= self.testperiod()[1]:
+                    try:
+                        dayIdx = self._portfolio[ticker].index.get_loc(self._clockDay)
+                    except KeyError:
+                        dayIdx = 0
+                    if dayIdx > 0:
+                        # entry?
+                        entry, stop, triggerOn = entryObjPerTicker[ticker].searchcallback(dayIdx) # callback method
+                        if (entry is not None) and (stop is not None) \
+                            and (self._portfolio[ticker].iloc[dayIdx].name == self._portfolio[ticker].iloc[-1].name):
+                            self._opportunities = self._opportunities.append(
+                                pd.DataFrame({
+                                    'ticker': [ticker],
+                                    'entry': entry,
+                                    'stop': stop,
+                                    'trigger_on': triggerOn
+                                })
+                            ).reset_index(drop=True)
+                    self._clockDay += timedelta(1)
+        else:
+            print('Create portfolio before backtesting...')
+        
+        if self._opportunities.empty:
+            print('Nothing found...')
+            return(None)
+        else:
+            return(self._opportunities)
+
     def backtest(self, entrymodel, exitmodel, updaterisk=False, trail=False):
         """Simulates trades over the chosen period
 
@@ -266,7 +325,7 @@ class Trader():
             exitObjPerTicker = {ticker: exitmodel(ticker, self) for ticker in self._portfolio}
 
             self._clockDay = self.testperiod()[0] + timedelta(1)
-            while self._clockDay < self.testperiod()[1]:
+            while self._clockDay <= self.testperiod()[1]:
                 for ticker in self._portfolio:
                     try:
                         dayIdx = self._portfolio[ticker].index.get_loc(self._clockDay)
