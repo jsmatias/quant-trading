@@ -61,14 +61,8 @@ class Trader():
         'C'
     ])
 
-    def __init__(self, risk_size, target_size, capital, fees):
-        self._initialSettings = {
-            'risk_size': risk_size,
-            'target_size': target_size,
-            'capital': capital,
-            'fees': fees
-        }
-        self.reset()
+    def __init__(self, ):
+        pass    
 
     @classmethod
     def loadportfolio(cls, portfolio, start=None, end=None):
@@ -108,6 +102,15 @@ class Trader():
         return(
             round(risk / (entry - stop))
         )
+
+    def new(self, risk_size, target_size, capital, fees):
+        self._initialSettings = {
+            'risk_size': risk_size,
+            'target_size': target_size,
+            'capital': capital,
+            'fees': fees
+        }
+        self.reset()
 
     def reset(self):
         """
