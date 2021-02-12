@@ -15,6 +15,7 @@ class ABC:
     stop = {'position': 'C', 'factor': 1}
     target = {'projection': 'AB', 'factor': 1} # 'AB' or None 
     selectCriteria = None # 4SMA, SMA21...
+    name = 'ABC'
 
     _ticker = 'MGLU3'
     _trader = {}  # trader object
@@ -41,9 +42,12 @@ class ABC:
         """Adjusts the model using a dictionary to set values to the attributes of the class.
         """
         if attributesDict is None:
+            settings = {}
             for k, v in cls.__dict__.items():
                 if not (callable(cls.__dict__[k])) and (k!='settings') and not (k.startswith('_')):
-                    print(f'{k}: {v}')
+                    # print(f'{k}: {v}')
+                    settings[k] = v
+            return(settings)
         else:
             for k, v in attributesDict.items():
                 setattr(cls, k, v)
@@ -219,11 +223,24 @@ class ABC:
                 if (target is None) or (self.RRLowerThan1) or ((target - entry) > (entry - stop)):
                     print(f'{candle.name}: {self._ticker} {entry=}, {stop=}')
                     tradeID = self._trader.buy(ticker=self._ticker, entry=entry,
-                                        stop=stop, entry_date=candle.name)
+                                        stop=stop, entry_date=candle.name, strategy_name=self.name)
                     self._trader.settarget(tradeID, target=target)
 
         self.updatepattern(candle)
     
+    # def abcshape(self):
+    #     """
+    #     """
+
+    #     abHeight = self._pattern['High'].max() - self._pattern['Low'].min()
+    #     abGain = abHeight / self._pattern['Low'].min()
+    #     retraceLv = (self._pattern['High'].max() - self._pattern.loc[self._pattern['pivot']=='C', 'Low'].min()) / abHeight
+        
+    #     bcHeight = round(
+
+    #     )
+    #     return(abHeight, bcHeight)
+
     def searchcallback(self, idx):
         """
         """
@@ -250,3 +267,132 @@ class ABC:
         stop = None if stop is None else entry - self.stop['factor'] * (entry - stop)
         # print(self._ticker, entry, stop)
         return(entry, stop, triggerOn)
+
+
+# class INSIDEBAR:
+#     """Inside bar.
+#     Rules:
+#         + Entry above inside bar
+#         + Stop bellow inside bar
+#         + Target fixed according to RR 
+#     """
+#     debug = False
+#     stop = {'position': 'C', 'factor': 1}
+#     target = {'projection': 'AB', 'factor': 1} # 'AB' or None 
+#     selectCriteria = None # 4SMA, SMA21...
+#     name = 'inside bar'
+
+#     _ticker = 'MGLU3'
+#     _trader = {}  # trader object
+
+#     def __init__(self, ticker, trader):
+#         self._ticker = ticker
+#         self._trader = trader
+#         # self.reset(trader._portfolio[self._ticker].iloc[0])
+#         if self.selectCriteria is None:
+#             pass
+#         elif self.selectCriteria.lower() == '4sma':
+#             self._trader._portfolio[ticker]['sma4'] = self._trader._portfolio[ticker]['Close'].rolling(window=4).mean()
+#             self._trader._portfolio[ticker]['sma17'] = self._trader._portfolio[ticker]['Close'].rolling(window=17).mean()
+#             self._trader._portfolio[ticker]['sma34'] = self._trader._portfolio[ticker]['Close'].rolling(window=34).mean()
+#             self._trader._portfolio[ticker]['sma80'] = self._trader._portfolio[ticker]['Close'].rolling(window=80).mean()
+#         elif self.selectCriteria.lower()[:3] == 'sma':
+#             smaPeriod = int(self.selectCriteria.lower()[3:])
+#             self._trader._portfolio[ticker][f'sma{smaPeriod}'] = self._trader._portfolio[ticker]['Close'].rolling(window=smaPeriod).mean()
+#         else:
+#             print('Selection criteria not available. Try None or 4sma.')
+    
+#     # @classmethod
+#     # def settings(cls, attributesDict=None):
+#     #     """Adjusts the model using a dictionary to set values to the attributes of the class.
+#     #     """
+#     #     if attributesDict is None:
+#     #         settings = {}
+#     #         for k, v in cls.__dict__.items():
+#     #             if not (callable(cls.__dict__[k])) and (k!='settings') and not (k.startswith('_')):
+#     #                 # print(f'{k}: {v}')
+#     #                 settings[k] = v
+#     #         return(settings)
+#     #     else:
+#     #         for k, v in attributesDict.items():
+#     #             setattr(cls, k, v)
+
+#     def reset(self):
+#         self._pattern = pd.DataFrame()
+
+#     def updatepattern(self, prevCandle, candle):
+#         if (prevCandle['High'] > candle['High']) and (prevCandle['Low'] < candle['Low']):
+#             self._pattern = candle
+#         else:
+#             self.reset()
+
+#         if self.debug:
+#             print(f'{candle.name}: {self._ticker}')
+        
+#     def criteria(self, candle):
+#         if self.selectCriteria is None:
+#             return(True)
+#         elif self.selectCriteria.lower() == '4sma':
+#             if (candle['sma4'] > candle['sma17'] > candle['sma34'] > candle['sma80']):
+#                 return(True)
+#             else: return(False)
+#         elif self.selectCriteria.lower()[:3] == 'sma':
+#             if candle['Close'] > candle[self.selectCriteria.lower()]:
+#                 return(True)
+            
+#     def checktrigger(self, candle):
+#         """Checks if an entry is triggered on candle based on pattern.
+
+#         Args:
+#             candle (pd.Series): Time series pandas series
+#         return (float | None, float | None): entry and stop
+#         """
+#         entry, stop = None, None
+#         if not self._pattern.empty():
+#             if candle['Low'] <= (self._pattern['High'] + 0.01) <= candle['High']:
+#                 entry = round(self._pattern['High'] + 0.01, 2)
+#                 stop = round(self._pattern['Low'] - 0.01, 2)
+#         return(entry, stop)
+
+#     def entrycallback(self, idx):
+#         """
+#         """
+#         candle = self._trader._portfolio[self._ticker].iloc[idx]
+#         prevCandle = self._trader._portfolio[self._ticker].iloc[idx - 1])
+        
+#         entry, stop = self.checktrigger(candle)
+#         if entry and stop:
+#             if self.criteria(prevCandle):
+#                 # filter RR lower than 1:
+#                 print(f'{candle.name}: {self._ticker} {entry=}, {stop=}')
+#                 tradeID = self._trader.buy(ticker=self._ticker, entry=entry,
+#                                     stop=stop, entry_date=candle.name, strategy_name=self.name)
+#                 self._trader.settarget(tradeID, target=None)
+#         self.updatepattern(prevCandle, candle)
+    
+#     # def searchcallback(self, idx):
+#     #     """
+#     #     """
+#     #     candle = self._trader._portfolio[self._ticker].iloc[idx]
+#     #     self.updatepattern(candle)
+
+#     #     minC = self._pattern.loc[self._pattern['pivot']=='C', 'Low'].min()
+        
+#     #     if self.criteria(candle):
+#     #         if self._pattern.iloc[-1]['pivot'] == 'S':
+#     #             entry = round(self._pattern.iloc[-1]['High'] - 0.01, 2)
+#     #             stop = round(min(minC, self._pattern.iloc[-1]['Low']) - 0.01, 2)
+#     #             triggerOn = 'S'
+#     #             # print(self._ticker, entry, stop)
+#     #         elif self._pattern.iloc[-1]['pivot'] == 'C':
+#     #             entry = round(self._pattern['High'].max() - 0.01, 2)
+#     #             stop = round(minC - 0.01, 2)
+#     #             triggerOn = 'C'
+#     #             # print(self._ticker, entry, stop)
+#     #         else:
+#     #             entry, stop, triggerOn = None, None, None
+#     #     else:
+#     #         entry, stop, triggerOn = None, None, None
+#     #     stop = None if stop is None else entry - self.stop['factor'] * (entry - stop)
+#     #     # print(self._ticker, entry, stop)
+#     #     return(entry, stop, triggerOn)

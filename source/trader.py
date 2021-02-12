@@ -10,6 +10,7 @@ from tqdm import tqdm
 class Trader():
     _portfolio = {}
     _period = []
+    strategy = {}
     _R = 100
     _RRatio = 100 / 10000
     _trg = 200
@@ -25,6 +26,7 @@ class Trader():
     _history = pd.DataFrame(columns=[
         'entry_date',
         'ticker',
+        'strategy',
         'entry',
         'entry_vol',
         'stop',
@@ -38,6 +40,7 @@ class Trader():
     ])
     _summary = pd.Series(index=[
         'period',
+        'strategy',
         'avg_time_in',
         'total_trades',
         'open_trades',
@@ -52,7 +55,10 @@ class Trader():
         'ticker',
         'entry',
         'stop',
-        'trigger_on'
+        'trigger_on', 
+        'A',
+        'B',
+        'C'
     ])
 
     def __init__(self, risk_size, target_size, capital, fees):
@@ -63,6 +69,33 @@ class Trader():
             'fees': fees
         }
         self.reset()
+
+    @classmethod
+    def loadportfolio(cls, portfolio, start=None, end=None):
+        """
+        Args:
+            portfolio (list): list of tickers, e.g. MGLU3.SA, TSLA
+            start (datetime): If None, takes 5 years ago
+            end (datetime):
+        """
+        firstDay = datetime.today()
+        lastDay = datetime(1900, 1, 1)
+        cls._portfolio = {}
+        pbar = tqdm(portfolio, total=len(portfolio), unit='ticker')
+        for ticker in pbar:
+            pbar.set_description(desc=ticker)
+            try:
+                cls._portfolio[ticker] = pdr.get_data_yahoo(
+                    ticker,
+                    start=start,
+                    end=end
+                )
+                firstDay = cls._portfolio[ticker].index[0] if cls._portfolio[ticker].index[0] < firstDay else firstDay
+                lastDay = cls._portfolio[ticker].index[-1] if cls._portfolio[ticker].index[-1] > lastDay else lastDay
+            except Exception as error:
+                print(f'Loading error: {error}')
+                pass
+        cls._period = [firstDay, lastDay]
 
     @staticmethod
     def _risk(entry, stop, vol):
@@ -88,6 +121,7 @@ class Trader():
         self._RRatio = self._R / self._capital
         self._history = pd.DataFrame(columns=[
             'entry_date',
+            'strategy',
             'ticker',
             'entry',
             'entry_vol',
@@ -149,32 +183,6 @@ class Trader():
         daytime = daytime if daytime else self._clockDay
         return(self._portfolio[ticker].truncate(after=daytime).index[-1])
 
-    def loadportfolio(self, portfolio, start=None, end=None):
-        """
-        Args:
-            portfolio (list): list of tickers, e.g. MGLU3.SA, TSLA
-            start (datetime): If None, takes 5 years ago
-            end (datetime):
-        """
-        firstDay = datetime.today()
-        lastDay = datetime(1900, 1, 1)
-        self._portfolio = {}
-        pbar = tqdm(portfolio, total=len(portfolio), unit='ticker')
-        for ticker in pbar:
-            pbar.set_description(desc=ticker)
-            try:
-                self._portfolio[ticker] = pdr.get_data_yahoo(
-                    ticker,
-                    start=start,
-                    end=end
-                )
-                firstDay = self._portfolio[ticker].index[0] if self._portfolio[ticker].index[0] < firstDay else firstDay
-                lastDay = self._portfolio[ticker].index[-1] if self._portfolio[ticker].index[-1] > lastDay else lastDay
-            except Exception as error:
-                print(f'Loading error: {error}')
-                pass
-        self._period = [firstDay, lastDay]
-
     def testperiod(self):
         return(self._period)
         
@@ -205,7 +213,7 @@ class Trader():
             self._history.loc[pos_idx, 'target'] = target
         else: print("Couldn't find the trade to set target to...")
 
-    def buy(self, ticker, entry, stop, entry_date, vol=0):
+    def buy(self, ticker, entry, stop, entry_date, strategy_name, vol=0):
         vol = vol if vol else self._volume(entry, stop, self._R)
 
         if vol * entry < self._capital:
@@ -214,6 +222,7 @@ class Trader():
             self._history = self._history.append(
                 pd.DataFrame({
                     'entry_date': [entry_date],
+                    'strategy': [strategy_name],
                     'ticker': [ticker],
                     'entry': [entry],
                     'entry_vol': [vol],
@@ -293,7 +302,10 @@ class Trader():
                                     'ticker': [ticker],
                                     'entry': entry,
                                     'stop': stop,
-                                    'trigger_on': triggerOn
+                                    'trigger_on': triggerOn,
+                                    'A': round(entryObjPerTicker[ticker]._pattern['Low'].min(), 2),
+                                    'B': round(entryObjPerTicker[ticker]._pattern['High'].max(), 2), 
+                                    'C': round(entryObjPerTicker[ticker]._pattern.loc[entryObjPerTicker[ticker]._pattern['pivot']=='C', 'Low'].min(), 2)
                                 })
                             ).reset_index(drop=True)
                     self._clockDay += timedelta(1)
@@ -353,11 +365,12 @@ class Trader():
             return(self._history[mask])
         else:
             return(self._history)
-    
+    # for strategy: summary should be changed
     def summary(self, ticker=''):
         """Returns results over the backtested period.
         """
         self._summary['period'] = self._period
+        self._summary['strategy'] = self.history(ticker)['strategy'].unique().tolist()
         self._summary['avg_time_in'] = self.history(ticker).loc[self.history(ticker)['status']=='sold', 'time_in'] \
             .apply(lambda s: int(s.split(' ')[0])).mean()
         self._summary['total_trades'] = self.history(ticker).shape[0]
@@ -422,7 +435,7 @@ class Trader():
         return(
             - avgWin / avgLoss
         )
-
+    # for strategy, performance should be changed
     def performance(self, benchmark=None):
         """
         Args:
@@ -432,13 +445,13 @@ class Trader():
         cnt = 0
 
         fig, axs = pl.subplots(nrows=2, sharex=True, gridspec_kw={'height_ratios': [3, 1]})
-        for ticker in self._history['ticker'].unique():
-            tickerResults = self._history[self._history['ticker']==ticker].copy()
+        for param in self._history['ticker'].unique():
+            results = self._history[self._history['ticker']==param].copy()
 
             axs[0].plot(
-                tickerResults['entry_date'],
-                tickerResults['pnl'].cumsum().fillna(method='ffill'),
-                label=f'{ticker}',
+                results['entry_date'],
+                results['pnl'].cumsum().fillna(method='ffill'),
+                label=f'{param}',
                 linestyle='-',
                 lw=2,
                 color=colours[cnt % len(colours)]
@@ -497,7 +510,7 @@ class Trader():
         axs[1].set_ylabel('PNL/Trade (R$)')
         
         pl.show()
-
+    # Should be changed
     def plottrades(self, ticker, highAndLows=False):
         """Plot price history and trades on period for a stock ticker.
 
@@ -593,19 +606,29 @@ class Trader():
         )
 
         fig.update_layout(
+            spikedistance=1000,
+            hoverdistance=10,
             title=ticker,
             xaxis={
                 'rangeslider_visible':False,
                 "rangebreaks": [{
                     "bounds": ["sat", "mon"],
                     "values":["2015-12-24", "2015-12-25", "2016-01-01"]
-                }]
+                }],
+                'showline': False,
+                'spikecolor': 'grey',
+                'spikesnap': 'cursor',
+                'spikemode': 'across',
+                'spikedash': 'solid',
+                'spikethickness': 1,
+                'showspikes': False
             },
-            yaxis1=dict(side='right', domain=[0, 0.15], showticklabels=False),
-            yaxis2=dict(side='right', title='R$', domain=[0.15, 0.8], type='log'),
+            yaxis1=dict(side='right', domain=[0, 0.15], showticklabels=False, showspikes=False, showline=False, spikecolor="grey", spikesnap='cursor', spikemode='across', spikedash='solid', spikethickness=1),
+            yaxis2=dict(side='right', title='R$', domain=[0.15, 0.8], type='log', showspikes=False, showline=False, spikecolor="grey", spikesnap='cursor', spikemode='across', spikedash='solid', spikethickness=1),
             legend=dict(orientation='h', y=0.9, x=0.3, yanchor='bottom'),
             margin=dict(t=40, b=40, r=40, l=40),
             plot_bgcolor='rgb(250, 250, 250)'
         )
 
-        fig.show()
+        # fig.show()
+        return(fig)
