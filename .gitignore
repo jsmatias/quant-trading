@@ -7,6 +7,8 @@ __pycache__/
 **/*.ipynb
 **/.ipynb_checkpoints
 !notebooks/template.ipynb
+!notebooks/VIVT3-IRF2.ipynb
+!notebooks/LWSA3.ipynb
 
 # IPython
 profile_default/
