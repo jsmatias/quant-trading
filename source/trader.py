@@ -321,7 +321,7 @@ class Trader():
         else:
             return(self._opportunities)
 
-    def backtest(self, entrymodel, exitmodel, updaterisk=False, trail=False):
+    def backtest(self, strategy, updaterisk=False, trail=False):
         """Simulates trades over the chosen period
 
         Args:
@@ -336,8 +336,8 @@ class Trader():
                         # exit strategy() (trader.sell())
         """
         if self._portfolio:
-            entryObjPerTicker = {ticker: entrymodel(ticker, self) for ticker in self._portfolio}
-            exitObjPerTicker = {ticker: exitmodel(ticker, self) for ticker in self._portfolio}
+            strategyPerTicker = {ticker: strategy(ticker, self) for ticker in self._portfolio}
+            # exitObjPerTicker = {ticker: exitmodel(ticker, self) for ticker in self._portfolio}
 
             self._clockDay = self.testperiod()[0] + timedelta(1)
             while self._clockDay <= self.testperiod()[1]:
@@ -348,9 +348,9 @@ class Trader():
                         dayIdx = 0
                     if dayIdx > 0:
                         # entry?
-                        entryObjPerTicker[ticker].entrycallback(dayIdx) # callback method
+                        strategyPerTicker[ticker].entrycallback(dayIdx) # callback method
                         # exit?
-                        exitObjPerTicker[ticker].exitcallback(dayIdx) # callback method
+                        strategyPerTicker[ticker].exitcallback(dayIdx) # callback method
                         
                         if updaterisk:
                             self.updaterisk(every=50)
@@ -514,7 +514,7 @@ class Trader():
         
         pl.show()
     # Should be changed
-    def plottrades(self, ticker, highAndLows=False):
+    def plottrades(self, ticker, highAndLows=False, indicator=None):
         """Plot price history and trades on period for a stock ticker.
 
         Args:
@@ -566,7 +566,18 @@ class Trader():
                 ),
             )
 
+        if indicator:
+            indicatorTrace = go.Scatter(
+                x=self.portfolio(ticker).index,
+                y=self.portfolio(ticker)[indicator],
+                name=indicator,
+                yaxis='y',
+                line=dict(color='red')
+            )
+        else:
+            indicatorTrace = go.Bar(x=self.portfolio(ticker).index, y=self.portfolio(ticker)['Volume'], name='Volume', yaxis='y')
 
+        stops = self.history(ticker)[self.history(ticker)['stop'] > 0.1]
         fig = go.Figure(
             data=[
                 go.Candlestick(
@@ -587,10 +598,10 @@ class Trader():
                     marker=dict(color='orange', symbol='triangle-up')    
                 ),
                 go.Scatter(
-                    x=self.history(ticker)['entry_date'], 
-                    y=self.history(ticker)['stop'],
+                    x=stops['entry_date'], 
+                    y=stops['stop'],
                     name=f'Stop loss',
-                    text=self.history(ticker)['pnl'].apply(lambda x: f"PNL: {x:.2f}"),
+                    text=stops['pnl'].apply(lambda x: f"PNL: {x:.2f}"),
                     yaxis='y2',
                     mode='markers',
                     marker=dict(color='red', symbol='triangle-down')
@@ -604,7 +615,7 @@ class Trader():
                     mode='markers',
                     marker=dict(color='green', symbol='triangle-down')
                 ),
-                go.Bar(x=self.portfolio(ticker).index, y=self.portfolio(ticker)['Volume'], name='Volume', yaxis='y')
+                indicatorTrace
             ] + traces
         )
 
