@@ -459,7 +459,10 @@ class RSIN:
                         price = round(position['target'], 2)
 
                     atDate = candle.name
-                    print('Profit!')
+                    if position['target'] > position['entry']:
+                        print('Profit!')
+                    else:
+                        print('Loss...')
 
                 elif candle['Low'] <= position['stop']:
                     if candle['Open'] <= position['stop']:

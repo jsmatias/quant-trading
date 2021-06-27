@@ -22,3 +22,5 @@ __pypackages__/
 
 # folders
 /archive
+# virtual environment folder
+/env
