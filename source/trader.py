@@ -1,30 +1,20 @@
-import numpy as np
 import pandas as pd
-import matplotlib.pyplot as pl
-import pandas_datareader as pdr
-from datetime import datetime, timedelta
-import plotly.graph_objects as go
-from tqdm import tqdm
+# import numpy as np
+from broker import Broker
+from backtest import Backtest
 
 
 class Trader():
-    _portfolio = {}
-    _period = []
-    strategy = {}
-    _R = 100
-    _RRatio = 100 / 10000
-    _trg = 200
-    _initial_cap = 10000
+
+    _initial_cap = 0
     _capital = 0
-    _fees = 0
-    _clockDay = datetime.today()
-    _highNLows = False
-    _benchmark = pd.DataFrame(columns=[
-        'entry_date',
-        'pnl'
-    ])
+    _strategies = ()
+    # broker = None
+    # backtest = None
+
     _history = pd.DataFrame(columns=[
-        'entry_date',
+        'entry_datetime',
+        'side',
         'ticker',
         'strategy',
         'entry',
@@ -34,63 +24,15 @@ class Trader():
         'status',
         'exit',
         'exit_vol',
-        'pnl',
-        'exit_date',
-        'time_in'
-    ])
-    _summary = pd.Series(index=[
-        'period',
-        'strategy',
-        'avg_time_in',
-        'total_trades',
-        'open_trades',
-        'pnl',
-        'pnl_percent',
-        'batting_avg',
-        'sharpe',
-        'liquid_cap',
-        'total_cap',
-    ], dtype='float64', name='summary')
-    _opportunities = pd.DataFrame(columns=[
-        'ticker',
-        'entry',
-        'stop',
-        'trigger_on', 
-        'A',
-        'B',
-        'C'
+        'exit_datetime',
     ])
 
-    def __init__(self, ):
-        pass    
-
-    @classmethod
-    def loadportfolio(cls, portfolio, start=None, end=None):
-        """
-        Args:
-            portfolio (list): list of tickers, e.g. MGLU3.SA, TSLA
-            start (datetime): If None, takes 5 years ago
-            end (datetime):
-        """
-        firstDay = datetime.today()
-        lastDay = datetime(1900, 1, 1)
-        cls._portfolio = {}
-        pbar = tqdm(portfolio, total=len(portfolio), unit='ticker')
-        for ticker in pbar:
-            pbar.set_description(desc=ticker)
-            try:
-                cls._portfolio[ticker] = pdr.get_data_yahoo(
-                    ticker,
-                    start=start,
-                    end=end
-                )
-                firstDay = cls._portfolio[ticker].index[0] if cls._portfolio[ticker].index[0] < firstDay else firstDay
-                lastDay = cls._portfolio[ticker].index[-1] if cls._portfolio[ticker].index[-1] > lastDay else lastDay
-            except Exception as error:
-                print(f'Loading error: {error}')
-                pass
-        cls._period = [firstDay, lastDay]
-
+    def __init__(self, capital=None):
+        if capital:
+            self.new(capital)
+        self.broker = Broker(self)
+        self.backtest = Backtest(self)
+        
     @staticmethod
     def _risk(entry, stop, vol):
         return(
@@ -103,104 +45,210 @@ class Trader():
             round(risk / (entry - stop))
         )
 
-    def new(self, risk_size, target_size, capital, fees):
-        self._initialSettings = {
-            'risk_size': risk_size,
-            'target_size': target_size,
-            'capital': capital,
-            'fees': fees
-        }
+    @property
+    def capital(self):
+        """Returns the liquid capital
+        """
+        return(self._capital)
+    
+    @capital.setter
+    def capital(self, cap):
+        """Set the liquid capital 
+        """
+        self._capital = round(cap, 2)
+
+    @property
+    def strategies(self):
+        return(self._strategies)
+
+    @strategies.deleter
+    def strategies(self):
+        self._strategies = ()
+
+    def addstrategy(self, strategy):
+        """
+        """
+        strategy.bind(self)
+        self._strategies += (strategy,)
+
+    def new(self, capital):
+        self._initial_cap = capital
         self.reset()
 
     def reset(self):
+        """Resets the initial settings of the trader, such as capital, risk, etc. 
         """
-        """
-        self._highNLows = False
-        self._capital = self._initialSettings['capital']
-        self._initial_cap = self._initialSettings['capital']
-        self._R = self._initialSettings['risk_size']
-        self._trg = self._initialSettings['target_size']
-        self._fees = self._initialSettings['fees']
-        self._RRatio = self._R / self._capital
+        del self.strategies
+        self.capital = self._initial_cap
         self._history = pd.DataFrame(columns=[
-            'entry_date',
+            'entry_datetime',
+            'exit_datetime',
+            'side',
             'strategy',
             'ticker',
-            'entry',
             'entry_vol',
+            'entry',
             'stop',
             'target',
-            'status',
             'exit',
             'exit_vol',
-            'pnl',
-            'exit_date',
-            'time_in'
+            'status',
+            'fees'
         ])
 
-    def updaterisk(self, every=50):
-        """Updates the risk based on the capital and initial risk ratio.
-        The update will be applied everytime the capital reaches initial capital * (1 + every / 100).
-
-        Args:
-            every (float): every in percent of initial cap
-        """
-
-        currentRatio = self._R / self.totalcap()
-        rr = self._trg / self._R
-
-        if currentRatio < (self._RRatio / (1 + every / 100)):
-            # update
-            self._R = round(self._RRatio * self.totalcap(), 0)
-            self._trg = round(rr * self._R)
-            print(currentRatio, self._RRatio)
-            print(f'Risk updated: {self._R}')
-            print(f'Trg updated: {self._trg}')
-
-    def trail(self, ticker, raiseToRisk=0, whenGain=2):
-        """Raises the stop to another level when the price reaches certain gain.
-
-        Args:
-            ticker (str): ticker symbol for which the stop loss will be raised
-            raiseToRisk (float): value proportional to R larger than -1
-            whenGain (float): value proportional to R
-        """
-        if raiseToRisk > -1:
-            boughtFilter = (self._history['status'] == 'bought') & (self._history['ticker'] == ticker)
-            for idx, position in self._history[boughtFilter].iterrows():
-                riskSize = position['entry'] - position['stop']
-                if (self._portfolio[ticker].loc[self.lasttradedday(ticker), 'High'] >= position['entry'] + whenGain * riskSize):
-                    # raise stop
-                    self._history.loc[idx, 'stop'] = position['entry'] + raiseToRisk * riskSize
-
-    def lasttradedday(self, ticker, daytime=None):
-        """Returns the last traded day relative to the daytime.
-
-        Args:
-            ticker (str): Stock symbol to be searched on portfolio
-            daytime (datetime): if empty it considers the current date from clock
-
-        Return:
-            datetime: index
-        """
-        daytime = daytime if daytime else self._clockDay
-        return(self._portfolio[ticker].truncate(after=daytime).index[-1])
-
-    def testperiod(self):
-        return(self._period)
+    def isSold(self, ticker) -> pd.DataFrame:
+        """Verifies if the trader has an open short position for a specific ticker"""
         
-    def portfolio(self, ticker=None):
-        """Returns list of traded symbols
-        """
-        if ticker:
-            return(self._portfolio[ticker])
-        else:
-            return(list(self._portfolio.keys()))
+        _isSold = (self._history['ticker'] == ticker) & (self._history['side'] == 'short') & (self._history['status'] == 'open')
+        return(_isSold)
+    
+    def isBought(self, ticker) -> pd.DataFrame:
+        """Verifies if the trader has an open long position for a specific ticker"""
+        
+        _isBought = (self._history['ticker'] == ticker) & (self._history['side'] == 'long') & (self._history['status'] == 'open')
+        return(_isBought)
 
-    def opportunities(self):
+    def buy(self, ticker, quantity, price, when, orderType, strategyName=None):
+        """Registers a buying process and reduces that correct amount from capital.
         """
+        price = self.broker.triggered(ticker, price, when, side='buy', orderType=orderType)
+        if price:
+            # First close any short position
+            for idx, position in self._history[self.isSold(ticker)].iterrows():
+                quantityToCover = abs(position['entry_vol'])
+                # print('buy if sold: ', when, ' ', idx, ' ', quantityToCover, quantity)
+                # print(self._history[self.isSold(ticker)])
+                if quantity >= quantityToCover:
+                    # close quantityToCover
+                    self.close(idx, price, when, strategyName)
+                    # update quantity
+                    quantity -= quantityToCover
+                elif quantity > 0:
+                    # edit open position to quantity
+                    positionCopy = position.copy()
+                    self._history.loc[idx, 'entry_vol'] = - quantity
+                    positionCopy['entry_vol'] = - (quantityToCover - quantity)
+                    # close open position with quantity
+                    self.close(idx, price, when, strategyName)
+                    # update quantity
+                    quantity -= quantity
+                    # open a new short position same as previous with the remaining quantity (quantToCover - quantity)
+                    self._history = self._history.append(positionCopy).reset_index(drop=True)
+
+            # If no (more) shorts, buy the remaining quantity
+            if quantity > 0:
+                # enough capital to buy?
+                if quantity * price < self.capital:
+                    # buy long
+                    fees = self.broker.calculatefees(price * quantity)
+                    self._history = self._history.append(
+                        pd.DataFrame({
+                            'entry_datetime': [when],
+                            'side': ['long'],
+                            'strategy': [strategyName],
+                            'ticker': [ticker],
+                            'entry': [price],
+                            'entry_vol': [quantity],
+                            'status': ['open'],
+                            'fees': [fees]
+                        })
+                    ).reset_index(drop=True)
+                    self.capital -= price * quantity + fees
+                    return(self._history.index[-1])
+                else:
+                    print('Low available capital...')
+                    return(-1)
+            elif quantity < 0:
+                print('Error.. Quantity shouldnt be lower than 0')
+                return(None)
+            else: return(None) 
+        else:
+            return(None)
+
+    def sell(self, ticker, quantity, price, when, orderType, strategyName=None):
+        """Registers a selling process and adds that correct amount to capital.
         """
-        return(self._opportunities)
+        price = self.broker.triggered(ticker, price, when, side='sell', orderType=orderType)
+        if price:
+            # First close any long position
+            for idx, position in self._history[self.isBought(ticker)].iterrows():
+                quantityToSell = abs(position['entry_vol'])
+                # print('sell if bought: ', when, ' ', idx, ' ', quantityToSell)
+                if quantity >= quantityToSell:
+                    # close quantityToSell
+                    self.close(idx, price, when, strategyName)
+                    # update quantity
+                    quantity -= quantityToSell
+                elif quantity > 0:
+                    # edit open position to quantity
+                    positionCopy = position.copy()
+                    self._history.loc[idx, 'entry_vol'] = quantity
+                    positionCopy['entry_vol'] = quantityToSell - quantity
+                    # close open position with quantity
+                    self.close(idx, price, when, strategyName)
+                    # update quantity
+                    quantity -= quantity
+                    # open a new short position same as previous with the remaining quantity (quantToCover - quantity)
+                    self._history = self._history.append(positionCopy).reset_index(drop=True)
+
+            # If no (more) longs, sell the remaining quantity
+            if quantity > 0:
+                # sell short
+                fees = self.broker.calculatefees(price * quantity)
+                self._history = self._history.append(
+                    pd.DataFrame({
+                        'entry_datetime': [when],
+                        'side': ['short'],
+                        'strategy': [strategyName],
+                        'ticker': [ticker],
+                        'entry': [price],
+                        'entry_vol': [- quantity],
+                        'status': ['open'],
+                        'fees': [fees]
+                    })
+                ).reset_index(drop=True)
+                
+                self.capital += price * quantity - fees
+                return(self._history.index[-1])
+            elif quantity < 0:
+                print('Error.. Quantity shouldnt be lower than 0')
+                return(None)
+            else: return(None) 
+        else:
+            return(None) 
+    
+    def close(self, pos_idx, price, when, strategyName=None):
+        """Closes an open position"""
+        price = round(price, 2)
+        
+        if self._history.loc[pos_idx, 'status'] == 'open':
+            quantity = - self._history.loc[pos_idx, 'entry_vol']
+            fees = self.broker.calculatefees(price * quantity)
+            self._history.loc[pos_idx, [
+                'strategy',
+                'exit_datetime',
+                'exit_vol',
+                'exit',
+                'status'
+            ]] = [strategyName, when, quantity, price, 'closed']
+            self._history.loc[pos_idx, 'fees'] += fees
+            self.capital -= quantity * price + fees
+            return(pos_idx)
+        elif self._history.loc[pos_idx, 'status'] == 'closed':
+            print(f'Position {pos_idx} already closed')
+            return(-1)
+
+    def setstop(self, pos_idx, stop):
+        """Set stop loss.
+        
+        Args:
+            pos_idx (int): index of the open trade on the trades history.
+            stop (float): price at which the stop loss will be set. 
+        """
+        stop = round(stop, 2)
+        if pos_idx >= 0:
+            self._history.loc[pos_idx, 'stop'] = stop
+        else: print(f"Couldn't find the trade {pos_idx} to set the stop to...")
 
     def settarget(self, pos_idx, target=None):
         """Set target price.
@@ -209,440 +257,17 @@ class Trader():
             pos_idx (int): index of the open trade on the trades history.
             target (float): if None target will be calculated based on the risk size.
         """
+        target = round(target, 2)
         if pos_idx >= 0:
-            entry, stop = self._history.loc[pos_idx, ['entry', 'stop']]
-            if target is None: print('Using trader target.')
-            target = target or ((self._trg / self._R) * (entry - stop) + entry)
+            # entry, stop = self._history.loc[pos_idx, ['entry', 'stop']]
+            # if target is None: print('Using trader target.')
+            # target = target or ((self._trg / self._R) * (entry - stop) + entry)
             self._history.loc[pos_idx, 'target'] = target
-        else: print("Couldn't find the trade to set target to...")
+        else: print(f"Couldn't find the trade {pos_idx} to set target to...")
 
-    def buy(self, ticker, entry, stop, entry_date, strategy_name, vol=0):
-        vol = vol if vol else self._volume(entry, stop, self._R)
-
-        if vol * entry < self._capital:
-
-            # target = (self._trg / self._R) * (entry - stop) + entry
-            self._history = self._history.append(
-                pd.DataFrame({
-                    'entry_date': [entry_date],
-                    'strategy': [strategy_name],
-                    'ticker': [ticker],
-                    'entry': [entry],
-                    'entry_vol': [vol],
-                    'stop': [stop],
-                    # 'target': [target],
-                    'status': ['bought']
-                })
-            ).reset_index(drop=True)
-            self._capital -= entry * vol
-
-            return(self._history.index[-1])
-
-        else: 
-            print('Low capital...')
-            return(-1)
-
-    def sell(self, price, exit_date, pos_idx, vol=0):
-
-        # vol else sell all
-        vol = vol if vol else self._history.loc[pos_idx, 'entry_vol']
-        ticker = self._history.loc[pos_idx, 'ticker']
-        # print(vol, self.totalvol())
-        if self.totalvol()[ticker] >= vol:
-            pnl = vol * (price - self._history.loc[pos_idx, 'entry'])
-            self._history.loc[pos_idx, 'exit_vol'] = -vol
-            self._history.loc[pos_idx, 'exit_date'] = pd.to_datetime(exit_date)
-            self._history.loc[pos_idx, 'exit'] = price
-            self._history.loc[pos_idx, 'pnl'] = pnl - self._fees
-            self._history.loc[pos_idx, 'status'] = 'sold'
-            time_in = self._history.loc[pos_idx, 'exit_date'] - self._history.loc[pos_idx, 'entry_date']
-            self._history.loc[pos_idx, 'time_in'] = f'{time_in.days} days'
-
-            self._capital += vol * price - self._fees
-            return(pos_idx)
-        else:
-            print('Not enough volume...')
-            return(-1)
-
-    #  def addreduce(self, entry, stop):
-        # 'returns new entry volume'
-        # self._entry.append(entry)
-        # self._stop.append(stop)
-
-        # actualRisk = self._R - sum([self._risk(e, stop, v) for e, v in zip(self._entry, self._vol)])
-        # vol = self._volume(entry, stop, actualRisk)
-        # self._vol.append(vol)
-
-        # print(f'New vol: {vol}')
-     
-    def search(self, entrymodel):
-        """Search a pattern on the lattest day of the available data.
-
-        Args:
-            pattern (pattern.class): Ex. ABC
-        
-        Return:
-            None | pandas.DataFrame: Opportunities found.
-        """
-        if self._portfolio:
-            entryObjPerTicker = {ticker: entrymodel(ticker, self) for ticker in self._portfolio}
-            pbar = tqdm(self._portfolio, total=len(self._portfolio), unit='ticker')
-            for ticker in pbar:
-                pbar.set_description(desc=ticker)
-                self._clockDay = self.testperiod()[0] + timedelta(1)
-                while self._clockDay <= self.testperiod()[1]:
-                    try:
-                        dayIdx = self._portfolio[ticker].index.get_loc(self._clockDay)
-                    except KeyError:
-                        dayIdx = 0
-                    if dayIdx > 0:
-                        # entry?
-                        entry, stop, triggerOn = entryObjPerTicker[ticker].searchcallback(dayIdx) # callback method
-                        if (entry is not None) and (stop is not None) \
-                            and (self._portfolio[ticker].iloc[dayIdx].name == self._portfolio[ticker].iloc[-1].name):
-                            self._opportunities = self._opportunities.append(
-                                pd.DataFrame({
-                                    'ticker': [ticker],
-                                    'entry': entry,
-                                    'stop': stop,
-                                    'trigger_on': triggerOn,
-                                    'A': round(entryObjPerTicker[ticker]._pattern['Low'].min(), 2),
-                                    'B': round(entryObjPerTicker[ticker]._pattern['High'].max(), 2), 
-                                    'C': round(entryObjPerTicker[ticker]._pattern.loc[entryObjPerTicker[ticker]._pattern['pivot']=='C', 'Low'].min(), 2)
-                                })
-                            ).reset_index(drop=True)
-                    self._clockDay += timedelta(1)
-        else:
-            print('Create portfolio before backtesting...')
-        
-        if self._opportunities.empty:
-            print('Nothing found...')
-            return(None)
-        else:
-            return(self._opportunities)
-
-    def backtest(self, strategy, updaterisk=False, trail=False):
-        """Simulates trades over the chosen period
-
-        Args:
-            model (class): It must have the following prototype:
-                class model:
-                    def callback(trader:Trader, ticker, dayIdx):    
-                        # if entry opportunity?: 
-                            trader.buy()
-                            # entry strategy() (buy or add)
-                
-                    # exit?:
-                        # exit strategy() (trader.sell())
-        """
-        if self._portfolio:
-            strategyPerTicker = {ticker: strategy(ticker, self) for ticker in self._portfolio}
-            # exitObjPerTicker = {ticker: exitmodel(ticker, self) for ticker in self._portfolio}
-
-            self._clockDay = self.testperiod()[0] + timedelta(1)
-            while self._clockDay <= self.testperiod()[1]:
-                for ticker in self._portfolio:
-                    try:
-                        dayIdx = self._portfolio[ticker].index.get_loc(self._clockDay)
-                    except KeyError:
-                        dayIdx = 0
-                    if dayIdx > 0:
-                        # entry?
-                        strategyPerTicker[ticker].entrycallback(dayIdx) # callback method
-                        # exit?
-                        strategyPerTicker[ticker].exitcallback(dayIdx) # callback method
-                        
-                        if updaterisk:
-                            self.updaterisk(every=50)
-
-                        if trail:
-                            self.trail(ticker)
-
-                self._clockDay += timedelta(1)
-        else:
-            print('Create portfolio before backtesting...')
-    
-    def history(self, ticker=''):
+    def history(self, ticker=None):
         if ticker:
             mask = self._history['ticker'] == ticker
             return(self._history[mask])
         else:
             return(self._history)
-    # for strategy: summary should be changed
-    def summary(self, ticker=''):
-        """Returns results over the backtested period.
-        """
-        self._summary['period'] = self._period
-        self._summary['strategy'] = self.history(ticker)['strategy'].unique().tolist()
-        self._summary['avg_time_in'] = self.history(ticker).loc[self.history(ticker)['status']=='sold', 'time_in'] \
-            .apply(lambda s: int(s.split(' ')[0])).mean()
-        self._summary['total_trades'] = self.history(ticker).shape[0]
-        self._summary['open_trades'] = self.history(ticker)[self.history(ticker)['status']=='bought'].shape[0]
-        self._summary['pnl'] = self.pnl(ticker)
-        self._summary['pnl_percent'] = self.pnl(ticker) * 100 / self._initial_cap
-        self._summary['batting_avg'] = self.battingavg(ticker)
-        self._summary['sharpe'] = self.sharpe(ticker)
-        self._summary['liquid_cap'] = self.capital()
-        self._summary['total_cap'] = self.totalcap()
-
-        idxs = self._summary.index[:-2] if ticker else self._summary.index
-        return(self._summary[idxs])
-
-    def capital(self):
-        return(self._capital)
-
-    def totalcap(self, atDate=None):
-        """Calculates total capital on the date: atDate.
-            totalcap = capital + sum(volume_ticker * price_atDate)
-
-        Args:
-            atDate (datetime | int): if -1 date is selected as last day with data available for the current ticker
-        
-        Return:
-            cap (float): total capital calculated atDate.
-        """
-        atDate = atDate if atDate else self._clockDay
-        volDf = self.totalvol()
-        cap = self.capital()
-        for ticker in volDf.index:
-            lastTradedCandle = self._portfolio[ticker].loc[self.lasttradedday(ticker, daytime=atDate)]
-            priceAtDate = self._portfolio[ticker].iloc[-1]['Close'] if atDate==-1 else lastTradedCandle['Close']
-            cap += volDf[ticker] * priceAtDate
-        return(cap)
-    
-    def totalvol(self):
-        """Calculates total volume of open trades        
-        """
-
-        groupByTicker = self._history.groupby('ticker')
-        return(
-            groupByTicker['entry_vol'].sum() + groupByTicker['exit_vol'].sum()
-        )
-        
-    def pnl(self, ticker=''):
-        return(
-            self.history(ticker)['pnl'].sum()
-        )
-    
-    def battingavg(self, ticker=''):
-        return(
-            self.history(ticker)[self.history(ticker)['pnl'] > 0].shape[0] / self.history(ticker)[self.history(ticker)['status'] == 'sold'].shape[0]
-        )
-    
-    def sharpe(self, ticker=''):
-        avgWin = self.history(ticker).loc[self.history(ticker)['pnl'] > 0, 'pnl'].mean()
-        avgLoss = self.history(ticker).loc[self.history(ticker)['pnl'] < 0, 'pnl'].mean()
-        # in case of nan values
-        avgWin = avgWin if avgWin == avgWin else 0 
-        avgLoss = avgLoss if avgLoss == avgLoss else 0
-        return(
-            - avgWin / avgLoss
-        )
-    # for strategy, performance should be changed
-    def performance(self, benchmark=None):
-        """
-        Args:
-            benchmark (str): Ticker symbol, e.g. BOVA11.SA, QQQ, SPY
-        """ 
-        colours = ['indigo', 'magenta', 'orangered', 'teal', 'crimson', 'mediumvioletred', 'rebeccapurple', 'seagreen']
-        cnt = 0
-
-        fig, axs = pl.subplots(nrows=2, sharex=True, gridspec_kw={'height_ratios': [3, 1]})
-        for param in self._history['ticker'].unique():
-            results = self._history[self._history['ticker']==param].copy()
-
-            axs[0].plot(
-                results['entry_date'],
-                results['pnl'].cumsum().fillna(method='ffill'),
-                label=f'{param}',
-                linestyle='-',
-                lw=2,
-                color=colours[cnt % len(colours)]
-            )
-            cnt += 1
-        # total pnl 
-        dailyResults = pd.DataFrame(
-            self._history.groupby(by='entry_date')['pnl'].sum().reset_index()
-        )
-        axs[0].plot(
-                dailyResults['entry_date'],
-                dailyResults['pnl'].cumsum().fillna(method='ffill'),
-                label='Total PNL',
-                linestyle='-',
-                lw=2,
-                color='black'
-            )
-        # add benchmark
-        if benchmark:
-            self._benchmark = pd.DataFrame(columns=['entry_date', 'pnl'])
-            df = pdr.get_data_yahoo(
-                benchmark,
-                start=min(self._history['entry_date']),
-                end=max(self._history['entry_date'])
-            )
-            self._benchmark['entry_date'] = self._history['entry_date'].unique()
-            # merge with df
-            self._benchmark = self._benchmark.merge(
-                df['Close'],
-                left_on='entry_date',
-                right_index=True
-            )
-            self._benchmark['pnl'] = self._initial_cap * (self._benchmark['Close'] / self._benchmark.loc[0, 'Close'] - 1)
-
-            axs[0].plot(
-                self._benchmark['entry_date'],
-                self._benchmark['pnl'],
-                label=benchmark,
-                linestyle='--',
-                lw=1,
-                color='gray'
-            )
-    
-        axs[0].set_ylabel('Cumulative PNL (R$)')
-        axs[0].legend()
-
-        # pnl barplot
-        axs[1].bar(
-            dailyResults['entry_date'], 
-            dailyResults['pnl'],
-            label='PNL'
-        )
-
-        axs[1].legend()
-        axs[1].set_xlabel('Entry date')
-        axs[1].set_ylabel('PNL/Trade (R$)')
-        
-        pl.show()
-    # Should be changed
-    def plottrades(self, ticker, highAndLows=False, indicator=None):
-        """Plot price history and trades on period for a stock ticker.
-
-        Args:
-            ticker (str): Stock symbol.
-        """
-
-        if highAndLows and not self._highNLows:
-            # calculate high and lows
-            for symbol in self.portfolio():
-                topMask = (self.portfolio(symbol)['High'] > self.portfolio(symbol)['High'].shift(1)) & \
-                    (self.portfolio(symbol)['High'] > self.portfolio(symbol)['High'].shift(-1))
-                bottomMask = (self.portfolio(symbol)['Low'] < self.portfolio(symbol)['Low'].shift(1)) & \
-                    (self.portfolio(symbol)['Low'] < self.portfolio(symbol)['Low'].shift(-1))
-                self.portfolio(symbol).loc[topMask, 'Top'] = self.portfolio(symbol).loc[topMask, 'High']
-                self.portfolio(symbol).loc[bottomMask, 'Bottom'] = self.portfolio(symbol).loc[bottomMask, 'Low']
-            self._highNLows = True
-
-        INCREASING_COLOR = '#17BECF'
-        DECREASING_COLOR = '#7F7F7F'
-
-        smaCols = self.portfolio(ticker).columns[self.portfolio(ticker).columns.str.contains('sma')]
-        traces = []
-        for col in smaCols:
-            traces.append(
-                go.Scatter(x=self.portfolio(ticker).index, y=self.portfolio(ticker)[col],
-                    name=f'SMA {col[3:]}', line=dict(color='#E377C2'), yaxis='y2'),
-            )
-
-        if highAndLows:
-            traces.append(
-                go.Scatter(
-                    x=self.portfolio(ticker).index, 
-                    y=self.portfolio(ticker)['Top'],
-                    name='Tops',
-                    yaxis='y2',
-                    mode='markers',
-                    marker=dict(symbol='arrow-bar-down', color='#46039f', line=dict(width=1, color='#0d0887'))
-                    # marker=dict(symbol='y-up', line=dict(width=2, color='orange'))  
-                ),
-            )
-            traces.append(
-                go.Scatter(
-                    x=self.portfolio(ticker).index, 
-                    y=self.portfolio(ticker)['Bottom'],
-                    name='Bottoms',
-                    yaxis='y2',
-                    mode='markers',
-                    marker=dict(symbol='arrow-bar-up', color='#46039f', line=dict(width=1, color='#0d0887'))
-                ),
-            )
-
-        if indicator:
-            indicatorTrace = go.Scatter(
-                x=self.portfolio(ticker).index,
-                y=self.portfolio(ticker)[indicator],
-                name=indicator,
-                yaxis='y',
-                line=dict(color='red')
-            )
-        else:
-            indicatorTrace = go.Bar(x=self.portfolio(ticker).index, y=self.portfolio(ticker)['Volume'], name='Volume', yaxis='y')
-
-        stops = self.history(ticker)[self.history(ticker)['stop'] > 0.1]
-        fig = go.Figure(
-            data=[
-                go.Candlestick(
-                    x=self.portfolio(ticker).index,
-                    open=self.portfolio(ticker)['Open'], high=self.portfolio(ticker)['High'],
-                    low=self.portfolio(ticker)['Low'], close=self.portfolio(ticker)['Close'],
-                    increasing_line_color= INCREASING_COLOR, decreasing_line_color= DECREASING_COLOR,
-                    name=ticker,
-                    yaxis='y2'
-                ),
-                go.Scatter(
-                    x=self.history(ticker)['entry_date'], 
-                    y=self.history(ticker)['entry'],
-                    name=f'Entry',
-                    text=self.history(ticker)['pnl'].apply(lambda x: f"PNL: {x:.2f}"),
-                    yaxis='y2',
-                    mode='markers',
-                    marker=dict(color='orange', symbol='triangle-up')    
-                ),
-                go.Scatter(
-                    x=stops['entry_date'], 
-                    y=stops['stop'],
-                    name=f'Stop loss',
-                    text=stops['pnl'].apply(lambda x: f"PNL: {x:.2f}"),
-                    yaxis='y2',
-                    mode='markers',
-                    marker=dict(color='red', symbol='triangle-down')
-                ),
-                go.Scatter(
-                    x=self.history(ticker)['entry_date'], 
-                    y=self.history(ticker)['target'],
-                    name=f'Target',
-                    text=self.history(ticker)['pnl'].apply(lambda x: f"PNL: {x:.2f}"),
-                    yaxis='y2',
-                    mode='markers',
-                    marker=dict(color='green', symbol='triangle-down')
-                ),
-                indicatorTrace
-            ] + traces
-        )
-
-        fig.update_layout(
-            spikedistance=1000,
-            hoverdistance=10,
-            title=ticker,
-            xaxis={
-                'rangeslider_visible':False,
-                "rangebreaks": [{
-                    "bounds": ["sat", "mon"],
-                    "values":["2015-12-24", "2015-12-25", "2016-01-01"]
-                }],
-                'showline': False,
-                'spikecolor': 'grey',
-                'spikesnap': 'cursor',
-                'spikemode': 'across',
-                'spikedash': 'solid',
-                'spikethickness': 1,
-                'showspikes': False
-            },
-            yaxis1=dict(side='right', domain=[0, 0.15], showticklabels=False, showspikes=False, showline=False, spikecolor="grey", spikesnap='cursor', spikemode='across', spikedash='solid', spikethickness=1),
-            yaxis2=dict(side='right', title='R$', domain=[0.15, 0.8], type='log', showspikes=False, showline=False, spikecolor="grey", spikesnap='cursor', spikemode='across', spikedash='solid', spikethickness=1),
-            legend=dict(orientation='h', y=0.9, x=0.3, yanchor='bottom'),
-            margin=dict(t=40, b=40, r=40, l=40),
-            plot_bgcolor='rgb(250, 250, 250)'
-        )
-
-        # fig.show()
-        return(fig)

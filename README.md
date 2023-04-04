@@ -2,6 +2,7 @@
 Quantitative analysis for trading. 
 
 The aim is to help a trader to backtest strategies and select good opportunities. 
+The database utilized on this project is from alphavantage. For documentation check: https://www.alphavantage.co/documentation/.  
 
 ## Installation
 It's recommend to have a virtual environment folder.
@@ -14,13 +15,17 @@ And activate it:
 # On windows
 $ .\env\Scripts\activate
 # On Mac or Linux
-$ source mypython/bin/activate
+$ source env/bin/activate
 ```
 
 Then install all the requirements:
 
 ```
 $ pip install -r requirements.txt
+```
+To start a new jupyter-lab:
+```
+$ python -m ipykernel install --name=env
 ```
 
 ## Please collaborate!

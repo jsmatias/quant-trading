@@ -23,3 +23,13 @@ __pypackages__/
 # folders
 /archive
 /env
+/_env
+
+# API key
+*.key
+
+# data
+database/
+
+# image html files
+*.html
